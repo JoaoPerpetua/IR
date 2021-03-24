@@ -1,5 +1,3 @@
-//Example code: A simple server side code, which echos back the received message. 
-//Handle multiple socket connections with select and fd_set on Linux 
 #include <stdio.h> 
 #include <string.h> //strlen 
 #include <stdlib.h> 
@@ -11,150 +9,138 @@
 #include <netinet/in.h> 
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros 
 	
-#define TRUE 1 
+#define PORT 56789
+#define BUFFERSIZE 1024
+#define SOCKSIZE 100
+#define TRUE 1
 #define FALSE 0 
-#define PORT 8888 
-	
-int main(int argc , char *argv[]) 
-{ 
-	int opt = TRUE; 
-	int master_socket , addrlen , new_socket , client_socket[30] , 
-		max_clients = 30 , activity, i , valread , sd; 
-	int max_sd; 
-	struct sockaddr_in address; 
-		
-	char buffer[1025]; //data buffer of 1K 
-		
-	//set of socket descriptors 
-	fd_set readfds; 
-		
-	//a message 
-	char *message = "ECHO Daemon v1.0 \r\n"; 
-	
+
+int main( int argc, char *argv[] ) {
+	int opt = TRUE;
+	static fd_set rfds;
+	static int retval;
+	static int max;
+	int client_socket[30];
+	int n_clients = 30;
+	int master_socket, sd,max_sd,new_socket,valread;
+	char buffer[1025];
+	int addrlen;
+	char msg[] = "Welcome to the server, your Host ID is ";
+	struct timeval timeout;
+	struct sockaddr_in address;
+	int poke = 10;
+	static int sockfd;
+	char aux[1];
+	// add here the declarations of variables needed
+	// create a TCP socket and connect to the server
+	int i;
 	//initialise all client_socket[] to 0 so not checked 
-	for (i = 0; i < max_clients; i++) 
+	for (i = 0; i < sizeof(client_socket); i++) 
 	{ 
 		client_socket[i] = 0; 
 	} 
-		
+	
 	//create a master socket 
 	if( (master_socket = socket(AF_INET , SOCK_STREAM , 0)) == 0) 
 	{ 
 		perror("socket failed"); 
 		exit(EXIT_FAILURE); 
-	} 
-	
-	//set master socket to allow multiple connections , 
-	//this is just a good habit, it will work without this 
+	}
+	sockfd = master_socket;
+	// set master socket to allow mutiple connections
 	if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, 
 		sizeof(opt)) < 0 ) 
 	{ 
 		perror("setsockopt"); 
 		exit(EXIT_FAILURE); 
-	} 
-	
+	}
 	//type of socket created 
 	address.sin_family = AF_INET; 
 	address.sin_addr.s_addr = INADDR_ANY; 
-	address.sin_port = htons( PORT ); 
-		
-	//bind the socket to localhost port 8888 
+	address.sin_port = htons( PORT );
+	
+	//bind the socket to localhost port 56789
 	if (bind(master_socket, (struct sockaddr *)&address, sizeof(address))<0) 
 	{ 
 		perror("bind failed"); 
 		exit(EXIT_FAILURE); 
 	} 
-	printf("Listener on port %d \n", PORT); 
-		
-	//try to specify maximum of 3 pending connections for the master socket 
-	if (listen(master_socket, 3) < 0) 
-	{ 
-		perror("listen"); 
-		exit(EXIT_FAILURE); 
-	} 
-		
-	//accept the incoming connection 
-	addrlen = sizeof(address); 
-	puts("Waiting for connections ..."); 
-		
-	while(TRUE) 
-	{ 
-		//clear the socket set 
-		FD_ZERO(&readfds); 
+	printf("Listener on port %d \n", PORT);
+	// 
+	listen(master_socket,5);
+	max=master_socket;
+	timeout.tv_sec = poke;
+	timeout.tv_usec = 0;
 	
-		//add master socket to set 
-		FD_SET(master_socket, &readfds); 
-		max_sd = master_socket; 
-			
-		//add child sockets to set 
-		for ( i = 0 ; i < max_clients ; i++) 
+	while(1){
+		// clear the socket set
+		FD_ZERO(&rfds);
+		// add master socket to set
+		FD_SET(master_socket, &rfds);
+		// add child sockets to set
+		for ( i = 0 ; i < sizeof(client_socket) ; i++) 
 		{ 
-			printf("Entrei 1");
 			//socket descriptor 
 			sd = client_socket[i]; 
 				
 			//if valid socket descriptor then add to read list 
 			if(sd > 0) 
-				FD_SET( sd , &readfds); 
+				FD_SET( sd , &rfds); 
 				
 			//highest file descriptor number, need it for the select function 
 			if(sd > max_sd) 
 				max_sd = sd; 
 		} 
-	
+		// add other sockets to descriptor set
 		//wait for an activity on one of the sockets , timeout is NULL , 
 		//so wait indefinitely 
-		activity = select( max_sd + 1 , &readfds , NULL , NULL , NULL); 
-	
-		if ((activity < 0) && (errno!=EINTR)) 
-		{ 
-			printf("select error"); 
-		} 
-			
-		//If something happened on the master socket , 
-		//then its an incoming connection 
-		if (FD_ISSET(master_socket, &readfds)) 
-		{ 
+		retval=select(max+1,&rfds,NULL,NULL,&timeout);
+		if (retval < 0)
+		{
+			perror("ERROR on select");
+			exit(1);
+		}
+		if(retval==0)
+		{
+			timeout.tv_sec = poke;
+			timeout.tv_usec = 0;
+			// send periodic message
+		}
+		else
+		{
+		if(FD_ISSET(master_socket, &rfds)){
+		// accept a new connection
 			if ((new_socket = accept(master_socket, 
 					(struct sockaddr *)&address, (socklen_t*)&addrlen))<0) 
 			{ 
 				perror("accept"); 
-				exit(EXIT_FAILURE); 
-			} 
-			
-			//inform user of socket number - used in send and receive commands 
-			
-		
-			//send new connection greeting message 
-			if( send(new_socket, message, strlen(message), 0) != strlen(message) ) 
-			{ 
-				perror("send"); 
-			} 
-				
-			puts("Welcome message sent successfully"); 
-				
+				exit(EXIT_FAILURE);
+			}
 			//add new socket to array of sockets 
-			for (i = 0; i < max_clients; i++) 
+			for (i = 0; i < sizeof(client_socket); i++) 
 			{
 			
-				printf("Entrei 2");
 				//if position is empty 
 				if( client_socket[i] == 0 ) 
 				{ 
 					client_socket[i] = new_socket; 
-					printf("Adding to list of sockets as %d\n" , i); 
-						
+					printf("Adding to list of sockets as %d\n" , i);
+					sprintf(aux,"%d",i);
+					
+					
+					send(new_socket, msg, strlen(msg), 0);
 					break; 
 				} 
-			} 
-		} 
+			}
 			
-		//else its some IO operation on some other socket 
-		for (i = 0; i < max_clients; i++) 
+		}
+		
+		// verify if any other socket received any message
+		for (i = 0; i < sizeof(client_socket); i++) 
 		{ 
 			sd = client_socket[i]; 
 				
-			if (FD_ISSET( sd , &readfds)) 
+			if (FD_ISSET( sd , &rfds)) 
 			{ 
 				//Check if it was for closing , and also read the 
 				//incoming message 
@@ -180,9 +166,10 @@ int main(int argc , char *argv[])
 					send(sd , buffer , strlen(buffer) , 0 ); 
 				} 
 			} 
-		} 
-	} 
+		}
 		
-	return 0; 
-} 
-
+		}
+	}
+	close(sockfd);
+	return 0;
+}
